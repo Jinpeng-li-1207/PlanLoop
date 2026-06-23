@@ -1,0 +1,9 @@
+# 文本文件统一用 LF，避免 CRLF 噪声
+* text=auto eol=lf
+
+# 二进制文件不要做换行转换（否则会损坏）
+*.pdf binary
+*.png binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
