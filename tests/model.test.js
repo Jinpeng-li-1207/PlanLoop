@@ -98,5 +98,19 @@ var rt2 = { id: 'r2', kind: 'qualitative', recurrence: { type: 'daily' }, blacko
 eq(M.classifyForToday({ tasks: [rt2], completions: [], blackouts: [] }, rt2, '2026-06-03'), 'hidden', '每月1–5号休息：3号今天隐藏');
 eq(M.classifyForToday({ tasks: [rt2], completions: [], blackouts: [] }, rt2, '2026-06-09'), 'active', '每月1–5号休息：9号正常');
 
+// --- 记录型(isLog) 不计入习惯统计 ---
+var logT = { id: 'lg', kind: 'quantitative', unit: '次', isLog: true, recurrence: { type: 'daily' } };
+var sLog = {
+  tasks: [{ id: 'h', kind: 'qualitative', recurrence: { type: 'daily' } }, logT],
+  completions: [
+    { taskId: 'h', date: '2026-06-21', value: null },
+    { taskId: 'lg', date: '2026-06-21', value: 1 },
+    { taskId: 'lg', date: '2026-06-21', value: 1 }
+  ], blackouts: []
+};
+eq(M.classifyForToday(sLog, logT, '2026-06-21'), 'hidden', '记录型不进今天习惯流');
+eq(M.periodProgress(sLog, logT, '2026-06-21').label, '记录', '记录型周期进度标签=记录');
+eq(M.weeklyCompletedTotal(sLog, '2026-06-21'), 1, '记录型不计入本周完成（只算习惯 h=1）');
+
 console.log('\nPlanLoop model 自测：' + pass + ' 通过, ' + fail + ' 失败');
 process.exit(fail ? 1 : 0);

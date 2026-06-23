@@ -32,7 +32,7 @@
   function mk(fixedId, title, opts) {
     return Object.assign({
       id: fixedId, title: title, kind: 'qualitative', unit: null, target: null,
-      direction: 'atLeast', multiAdd: false, quickAdds: null, blackouts: [],
+      direction: 'atLeast', multiAdd: false, quickAdds: null, blackouts: [], isLog: false, logKind: null,
       recurrence: { type: 'daily' }, createdAt: now(), archived: false
     }, opts);
   }
@@ -57,6 +57,7 @@
 
   // ---------- 完成数增量包装：执行 mutate，并按完成状态翻转维护 lifetimeTotal ----------
   function withDoneDelta(state, task, date, mutate) {
+    if (task.isLog) { mutate(); save(state); return; } // 记录型：只记录，不计入累计完成
     var was = M.isTaskDoneOn(state, task, date);
     mutate();
     var is = M.isTaskDoneOn(state, task, date);

@@ -1,5 +1,5 @@
 /* PlanLoop · service-worker.js —— 离线缓存应用外壳 */
-var CACHE = 'planloop-v8';
+var CACHE = 'planloop-v11';
 var ASSETS = [
   './', './index.html',
   './css/styles.css', './js/model.js', './js/storage.js', './js/app.js',

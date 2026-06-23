@@ -78,6 +78,7 @@
   // ---------- 今天分类：'active'（待办）| 'done'（今天已完成）| 'hidden'（今天不涉及）----------
   function classifyForToday(state, task, today) {
     if (task.archived) return 'hidden';
+    if (task.isLog) return 'hidden'; // 记录型不进“习惯”待办流（今天页单独成区）
     if (!isActiveDay(state, task, today)) return 'hidden'; // 放假/受伤/休息中 => 今天不出现
     var r = task.recurrence || {};
     var doneToday = isTaskDoneOn(state, task, today);
@@ -105,6 +106,7 @@
 
   // ---------- 周期进度（用于「计划」「我的」页的 x/y 与详情）----------
   function periodProgress(state, task, ref) {
+    if (task.isLog) return { done: 0, planned: 0, label: '记录' }; // 记录型不算达成率
     var r = task.recurrence || {};
     if (r.type === 'daily') {
       var wd = weekDates(ref).filter(function (d) { return isActiveDay(state, task, d); });
@@ -124,7 +126,7 @@
   // ---------- 本周完成总数（headline）：本周内所有“任务-天”完成计数 ----------
   function weeklyCompletedTotal(state, ref) {
     var wd = weekDates(ref); var n = 0;
-    state.tasks.forEach(function (t) { wd.forEach(function (d) { if (isActiveDay(state, t, d) && isTaskDoneOn(state, t, d)) n++; }); });
+    state.tasks.forEach(function (t) { if (t.isLog) return; wd.forEach(function (d) { if (isActiveDay(state, t, d) && isTaskDoneOn(state, t, d)) n++; }); });
     return n;
   }
 
@@ -132,7 +134,7 @@
   function weeklyCompletionRate(state, ref) {
     var done = 0, planned = 0;
     state.tasks.forEach(function (t) {
-      if (t.archived) return;
+      if (t.archived || t.isLog) return;
       var p = periodProgress(state, t, ref);
       if (p.label === '本周') { done += p.done; planned += p.planned; }
     });

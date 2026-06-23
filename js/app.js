@@ -28,6 +28,16 @@
     setTimeout(function () { t.classList.remove('show'); setTimeout(function () { t.remove(); }, 300); }, 1800);
   }
 
+  // 低压力激励：完成时给一句温柔反馈（只在“未完成→完成”时触发）
+  var PRAISE = ['做到了，真好 🌿', '又往前一点点', '记一笔，为今天的你', '稳稳的，不急不躁', '好样的，保持轻松', '今天也照顾了自己', '这一下，值得'];
+  var ALLCLEAR = ['今天的都做完啦，去好好歇着 🌿', '全部搞定，给自己鼓个掌 👏', '今天圆满，剩下的时间是你的'];
+  function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+  function celebrate(task, today, wasDone) {
+    if (wasDone || !M.isTaskDoneOn(state, task, today)) return;
+    var active = state.tasks.filter(function (t) { return M.classifyForToday(state, t, today) === 'active'; }).length;
+    toast(active === 0 ? pick(ALLCLEAR) : pick(PRAISE));
+  }
+
   // 屏蔽理由（颜色用于日历着色，两种模式下半透明叠加都可读）
   var REASONS = {
     travel: { label: '旅行', color: '#378add' },
@@ -49,7 +59,8 @@
     { key: 'water', title: '喝水', kind: 'quantitative', unit: 'ml', target: 2000, direction: 'atLeast', multiAdd: true,
       quickAdds: [{ label: '一口', amount: 30 }, { label: '几口', amount: 90 }, { label: '半杯', amount: 120 }, { label: '一杯', amount: 240 }],
       recurrence: { type: 'daily' }, personalize: 'water', desc: '多次累加 · 个性化目标' },
-    { key: 'sleep', title: '早睡 / 睡眠', kind: 'quantitative', unit: '小时', target: 8, direction: 'atLeast', recurrence: { type: 'daily' }, desc: '成人参考 7–9 小时' },
+    { key: 'sleep', title: '睡眠', kind: 'quantitative', unit: '小时', target: 8, direction: 'atLeast', isLog: true, logKind: 'sleep', personalize: 'sleep', recurrence: { type: 'daily' }, desc: '记上床/起床 · 看趋势' },
+    { key: 'fly', title: '起飞 🚀', kind: 'quantitative', unit: '次', multiAdd: true, isLog: true, logKind: 'count', recurrence: { type: 'daily' }, desc: '随手记 · 趣味统计' },
     { key: 'walk', title: '走路', kind: 'quantitative', unit: '步', target: 6000, direction: 'atLeast', recurrence: { type: 'daily' }, desc: '参考 6000–8000 步' },
     { key: 'run', title: '跑步', kind: 'quantitative', unit: '公里', target: 5, direction: 'atLeast', recurrence: { type: 'weekdays', weekdays: [1, 3, 5] }, desc: '每周一三五' },
     { key: 'meditate', title: '冥想', kind: 'quantitative', unit: '分钟', target: 10, direction: 'atLeast', recurrence: { type: 'daily' }, desc: '每天 10 分钟' },
@@ -70,6 +81,14 @@
     var note = src ? ('根据你的资料（' + (who.join(' · ') || '默认') + '）推荐 · 参考 ' + src) : '设置「我的→个人资料」可个性化推荐（现用通用默认 2000ml）';
     return { target: base, note: note };
   }
+  // 睡眠个性化：按年龄推荐时长（参考 National Sleep Foundation 区间）
+  function recommendSleep(profile) {
+    profile = profile || {};
+    var a = profile.age, t = 8, who = '成人';
+    if (a) { who = a + ' 岁'; if (a < 14) t = 9; else if (a < 18) t = 8.5; else if (a < 65) t = 8; else t = 7.5; }
+    var note = a ? ('根据你的资料（' + who + '）推荐 · 参考 National Sleep Foundation') : '成人参考 7–9 小时 · 参考 National Sleep Foundation';
+    return { target: t, note: note };
+  }
 
   // ---------- 视图：今天 ----------
   function renderToday() {
@@ -79,8 +98,9 @@
     var wd = M.WD_CN[M.weekdayOf(today) - 1];
     var d = M.parseDate(today);
 
-    var active = [], done = [];
+    var active = [], done = [], logs = [];
     state.tasks.forEach(function (t) {
+      if (t.isLog) { if (M.isActiveDay(state, t, today)) logs.push(t); return; }
       var cls = M.classifyForToday(state, t, today);
       if (cls === 'active') active.push(t); else if (cls === 'done') done.push(t);
     });
@@ -103,6 +123,12 @@
     active.forEach(function (t) { html += taskRowToday(t, today, false); });
     html += '</section>';
 
+    if (logs.length) {
+      html += '<h2 class="sec">随手记</h2><section class="list">';
+      logs.forEach(function (t) { html += logRowToday(t, today); });
+      html += '</section>';
+    }
+
     if (done.length) {
       html += '<section class="donefold"><button class="fold-btn" data-action="togglefold">' +
         '<span>已完成 ' + done.length + '</span>' + icon('chevron', 18) + '</button>' +
@@ -113,6 +139,31 @@
     return html;
   }
 
+  function sleepHours(bed, wake) {
+    if (!bed || !wake) return null;
+    var b = bed.split(':'), w = wake.split(':');
+    var bm = (+b[0]) * 60 + (+b[1]), wm = (+w[0]) * 60 + (+w[1]);
+    var d = wm - bm; if (d <= 0) d += 1440; // 跨午夜
+    return Math.round(d / 60 * 10) / 10;
+  }
+  // 今天页“随手记”区的记录型行
+  function logRowToday(t, today) {
+    var inner;
+    if (t.logKind === 'sleep') {
+      var has = M.dayCompletions(state, t.id, today).length;
+      var sub = has ? (fmt(M.daySum(state, t.id, today)) + ' 小时') : '今天还没记';
+      inner = '<div class="task logrow" data-id="' + t.id + '"><span class="logicon">' + icon('moon', 18) + '</span>' +
+        '<div class="task-main" data-action="logsleep"><p class="task-title">' + esc(t.title) + '</p><p class="task-meta">记录 · ' + sub + '</p></div>' +
+        '<button class="addbtn" data-action="logsleep" aria-label="记录睡眠">' + icon('edit', 16) + '</button></div>';
+    } else {
+      var n = M.dayCompletions(state, t.id, today).length;
+      inner = '<div class="task logrow" data-id="' + t.id + '"><span class="logicon big">🚀</span>' +
+        '<div class="task-main"><p class="task-title">' + esc(t.title) + '</p><p class="task-meta">今天 ' + n + ' 次</p></div>' +
+        (n ? '<button class="chip ghost" data-action="undo">撤销</button>' : '') +
+        '<button class="addbtn" data-action="flyplus" aria-label="记一次">' + icon('plus', 18) + '</button></div>';
+    }
+    return wrapSwipe(t.id, inner);
+  }
   function wrapSwipe(id, inner) {
     return '<div class="swipe" data-id="' + id + '">' +
       '<div class="swipe-actions">' +
@@ -180,12 +231,15 @@
     html += '<h2 class="sec">任务清单</h2><section class="list">';
     if (!state.tasks.length) html += '<p class="empty">还没有任务，点右上角 ＋ 新建一个</p>';
     state.tasks.forEach(function (t) {
-      var p = M.periodProgress(state, t, today);
       var tag = (t.blackouts && t.blackouts.length) ? ' <span class="rest-tag">' + (M.taskRestingOn(t, today) ? '休息中' : '含休息') + '</span>' : '';
+      var meta = t.isLog ? '记录' : (M.recurrenceLabel(t) + ' · ' + M.kindLabel(t));
+      var prog;
+      if (t.isLog) { prog = '<b>' + state.completions.filter(function (c) { return c.taskId === t.id; }).length + '</b><span>累计</span>'; }
+      else { var p = M.periodProgress(state, t, today); prog = '<b>' + p.done + '/' + p.planned + '</b><span>' + p.label + '</span>'; }
       html += '<div class="task plan-row" data-id="' + t.id + '">' +
         '<div class="task-main" data-action="detail"><p class="task-title">' + esc(t.title) + tag + '</p>' +
-        '<p class="task-meta">' + esc(M.recurrenceLabel(t)) + ' · ' + esc(M.kindLabel(t)) + '</p></div>' +
-        '<div class="prog"><b>' + p.done + '/' + p.planned + '</b><span>' + p.label + '</span></div>' +
+        '<p class="task-meta">' + esc(meta) + '</p></div>' +
+        '<div class="prog">' + prog + '</div>' +
         '<button class="iconbtn sm" data-action="edit" aria-label="编辑">' + icon('edit', 18) + '</button></div>';
     });
     html += '</section>';
@@ -246,12 +300,20 @@
     var weekly = M.weeklyCompletedTotal(state, today);
     var rate = M.weeklyCompletionRate(state, today);
     var html = '<header class="top"><h1>我的</h1></header>';
+    var touched = state.tasks.filter(function (t) { return !t.isLog && M.weekDates(today).some(function (d) { return M.isActiveDay(state, t, d) && M.isTaskDoneOn(state, t, d); }); }).length;
+    var recap = weekly === 0 ? '新的一周，慢慢来就好——做一点，就是一点。' : ('这周你已经为自己完成了 ' + weekly + ' 件事，照顾了 ' + touched + ' 个习惯，挺好的。');
+    html += '<div class="recap"><p class="recap-t">本周回顾</p><p class="recap-l">' + recap + '</p></div>';
     html += '<div class="lifecard"><span>累计完成（一直以来）</span><b>' + fmt(state.lifetimeTotal) + '</b></div>';
     html += '<div class="metrics"><div class="metric"><span>本周完成</span><b>' + weekly + '</b></div>' +
       '<div class="metric"><span>本周达成</span><b>' + rate + '%</b></div></div>';
     html += '<h2 class="sec">本周各任务</h2><section class="list">';
     if (!state.tasks.length) html += '<p class="empty">暂无任务</p>';
     state.tasks.forEach(function (t) {
+      if (t.isLog) {
+        var c = state.completions.filter(function (x) { return x.taskId === t.id; }).length;
+        html += '<div class="statrow" data-id="' + t.id + '" data-action="detail"><div class="statrow-head"><span>' + esc(t.title) + ' <em>记录</em></span><span class="muted">累计 ' + c + '</span></div></div>';
+        return;
+      }
       var p = M.periodProgress(state, t, today);
       var pct = p.planned ? Math.round(p.done / p.planned * 100) : 0;
       html += '<div class="statrow" data-id="' + t.id + '" data-action="detail"><div class="statrow-head"><span>' + esc(t.title) +
@@ -343,11 +405,13 @@
       case 'togglefold': ui.doneOpen = !ui.doneOpen; render(); break;
       case 'dismisstip': state.settings = state.settings || {}; state.settings.tipSeen = true; S.save(state); render(); break;
       case 'toggleadd': if (task) { ui.addOpen[task.id] = !ui.addOpen[task.id]; render(); } break;
-      case 'toggle': if (task) { S.toggleQualitative(state, task, today); render(); } break;
+      case 'toggle': if (task) { var w0 = M.isTaskDoneOn(state, task, today); S.toggleQualitative(state, task, today); render(); celebrate(task, today, w0); } break;
       case 'logvalue': if (task) openValue(task); break;
-      case 'quickadd': if (task) { S.addQuantitative(state, task, today, +actEl.dataset.amt); render(); } break;
+      case 'quickadd': if (task) { var wq = M.isTaskDoneOn(state, task, today); S.addQuantitative(state, task, today, +actEl.dataset.amt); render(); celebrate(task, today, wq); } break;
       case 'custom': if (task) openCustom(task); break;
       case 'undo': if (task) { S.undoLast(state, task, today); render(); } break;
+      case 'flyplus': if (task) { S.addQuantitative(state, task, today, 1); render(); toast(pick(['记下了 🚀', '+1，起飞 🚀', '收到 🚀'])); } break;
+      case 'logsleep': if (task) openSleepLog(task, today); break;
       case 'restday': if (task) { task.blackouts = (task.blackouts || []).concat([{ kind: 'range', start: today, end: today }]); S.upsertTask(state, task); render(); toast('今天休息，明天见'); } break;
       case 'deltask': if (task) openConfirm('删除「' + task.title + '」？相关打卡记录也会一并删除。', function () { S.deleteTask(state, task.id); render(); toast('已删除'); }); break;
       case 'prevmonth': ui.calMonthRef = shiftMonth(ui.calMonthRef || M.startOfMonth(today), -1); render(); break;
@@ -496,7 +560,7 @@
         unit: kind === 'quantitative' ? ($('#f-unit', wrap).value.trim() || null) : null,
         target: kind === 'quantitative' && $('#f-target', wrap).value !== '' ? +$('#f-target', wrap).value : null,
         direction: dir, multiAdd: kind === 'quantitative' ? $('#f-multi', wrap).checked : false,
-        quickAdds: t.quickAdds || null, blackouts: restRanges, archived: false,
+        quickAdds: t.quickAdds || null, blackouts: restRanges, isLog: t.isLog || false, logKind: t.logKind || null, archived: false,
         recurrence: { type: rt, weekdays: wdSet.slice().sort(function (a, b) { return a - b; }), count: Math.max(1, +$('#f-count', wrap).value || 1), date: $('#f-date', wrap).value || M.todayStr() }
       };
       if (rt === 'weekdays' && !out.recurrence.weekdays.length) { toast('请至少选一天'); return; }
@@ -521,7 +585,9 @@
     if (cur.length) wrap.querySelector('[data-clear]').addEventListener('click', function () { S.setQuantitative(state, task, date, null); closeModal(); render(); });
     wrap.querySelector('[data-ok]').addEventListener('click', function () {
       var val = $('#v-val', wrap).value; if (val === '') { toast('请输入数值'); return; }
-      S.setQuantitative(state, task, date, +val); closeModal(); render(); toast('已记录');
+      var w0 = M.isTaskDoneOn(state, task, date);
+      S.setQuantitative(state, task, date, +val); closeModal(); render();
+      if (date === M.todayStr()) celebrate(task, date, w0); else toast('已记录');
     });
     openModal(wrap); setTimeout(function () { $('#v-val', wrap).select(); }, 50);
   }
@@ -536,9 +602,39 @@
     wrap.querySelectorAll('[data-x]').forEach(function (b) { b.addEventListener('click', closeModal); });
     wrap.querySelector('[data-ok]').addEventListener('click', function () {
       var val = $('#c-val', wrap).value; if (val === '' || +val <= 0) { toast('请输入正数'); return; }
+      var w0 = M.isTaskDoneOn(state, task, date);
       S.addQuantitative(state, task, date, +val); closeModal(); render();
+      if (date === M.todayStr()) celebrate(task, date, w0);
     });
     openModal(wrap); setTimeout(function () { $('#c-val', wrap).focus(); }, 50);
+  }
+
+  // 睡眠记录器：上床/起床 → 自动算时长（也可直接填小时）
+  function openSleepLog(task, date) {
+    date = date || M.todayStr();
+    var cur = M.dayCompletions(state, task.id, date);
+    var curH = cur.length ? M.daySum(state, task.id, date) : '';
+    var wrap = document.createElement('div');
+    wrap.innerHTML = '<div class="sheet-head"><b>' + esc(task.title) + ' · ' + date + '</b><button class="iconbtn sm" data-x>' + icon('x', 18) + '</button></div>' +
+      '<div class="row2">' + field('上床时间', '<input id="sl-bed" type="time">') + field('起床时间', '<input id="sl-wake" type="time">') + '</div>' +
+      '<p class="muted small" id="sl-calc">—</p>' +
+      field('或直接填（小时）', '<input id="sl-h" type="number" inputmode="decimal" step="0.5" value="' + curH + '">') +
+      (task.target ? '<p class="muted small">参考：约 ' + fmt(task.target) + ' 小时（仅供参考，不评判）</p>' : '') +
+      '<div class="sheet-actions">' + (cur.length ? '<button class="btn danger" data-clear>清除</button>' : '<span></span>') +
+      '<div><button class="btn" data-x>取消</button><button class="btn primary" data-ok>保存</button></div></div>';
+    function calc() {
+      var hh = sleepHours($('#sl-bed', wrap).value, $('#sl-wake', wrap).value);
+      if (hh != null) { $('#sl-h', wrap).value = hh; $('#sl-calc', wrap).textContent = '约 ' + hh + ' 小时'; }
+    }
+    $('#sl-bed', wrap).addEventListener('change', calc);
+    $('#sl-wake', wrap).addEventListener('change', calc);
+    wrap.querySelectorAll('[data-x]').forEach(function (b) { b.addEventListener('click', closeModal); });
+    if (cur.length) wrap.querySelector('[data-clear]').addEventListener('click', function () { S.setQuantitative(state, task, date, null); closeModal(); render(); });
+    wrap.querySelector('[data-ok]').addEventListener('click', function () {
+      var v = $('#sl-h', wrap).value; if (v === '' || +v <= 0) { toast('请填时长，或上床/起床时间'); return; }
+      S.setQuantitative(state, task, date, +v); closeModal(); render(); toast('记下了，好梦 🌙');
+    });
+    openModal(wrap);
   }
 
   // 选择屏蔽方式：一次性 / 每周 / 每月
@@ -660,7 +756,37 @@
     state.completions.forEach(function (c) { if (c.taskId === task.id) seen[c.date] = true; });
     return Object.keys(seen).filter(function (d) { return M.isTaskDoneOn(state, task, d); }).length;
   }
+  function logDetailHTML(task) {
+    var today = M.todayStr(), wk = M.weekDates(today);
+    var head = '<div class="sheet-head"><b>' + esc(task.title) + '</b><button class="iconbtn sm" data-x>' + icon('x', 18) + '</button></div>' +
+      '<p class="muted small">记录型 · 只看趋势，不评判</p>';
+    if (task.logKind === 'sleep') {
+      var vals = wk.map(function (d) { return M.daySum(state, task.id, d); });
+      var recDays = wk.filter(function (d) { return M.dayCompletions(state, task.id, d).length; });
+      var avg = recDays.length ? recDays.reduce(function (s, d) { return s + M.daySum(state, task.id, d); }, 0) / recDays.length : 0;
+      var target = task.target || 0, H = 84;
+      var maxv = Math.max(target, Math.max.apply(null, vals.concat([1])));
+      var bars = wk.map(function (d, i) {
+        var v = vals[i], h = v > 0 ? Math.max(3, Math.round(v / maxv * H)) : 0;
+        var cls = v === 0 ? 'b-zero' : (target && v < target ? 'b-mid' : 'b-met');
+        return '<div class="bcol"><span class="bval">' + (v ? fmt(v) : '') + '</span><i class="bar2 ' + cls + '" style="height:' + h + 'px"></i></div>';
+      }).join('');
+      var tline = target ? Math.round(target / maxv * H) : 0;
+      var chart = '<div class="chart">' + (target ? '<div class="tline" style="bottom:' + tline + 'px"></div><span class="tlabel" style="bottom:' + (tline + 1) + 'px">参考 ' + fmt(target) + '</span>' : '') + '<div class="bars2">' + bars + '</div></div><div class="xrow">' + M.WD_CN.map(function (w) { return '<span>' + w + '</span>'; }).join('') + '</div>';
+      var msg = (recDays.length && target && avg < target - 0.5) ? '<p class="muted small">最近睡得有点少，记得多歇歇 🌙</p>' : '';
+      return head + '<div class="metrics"><div class="metric"><span>本周平均</span><b>' + (recDays.length ? avg.toFixed(1) : '—') + ' 小时</b></div><div class="metric"><span>本周已记</span><b>' + recDays.length + ' 天</b></div></div><div class="detail-card">' + chart + '</div>' + msg;
+    }
+    var counts = wk.map(function (d) { return M.dayCompletions(state, task.id, d).length; });
+    var weekN = counts.reduce(function (s, c) { return s + c; }, 0);
+    var monthN = M.monthDates(M.startOfMonth(today)).reduce(function (s, d) { return s + M.dayCompletions(state, task.id, d).length; }, 0);
+    var lifeN = state.completions.filter(function (c) { return c.taskId === task.id; }).length;
+    var maxc = Math.max.apply(null, counts.concat([1])), H2 = 84;
+    var bars2 = wk.map(function (d, i) { var c = counts[i], h = c > 0 ? Math.max(3, Math.round(c / maxc * H2)) : 0; return '<div class="bcol"><span class="bval">' + (c || '') + '</span><i class="bar2 b-met" style="height:' + h + 'px"></i></div>'; }).join('');
+    var chart2 = '<div class="chart"><div class="bars2">' + bars2 + '</div></div><div class="xrow">' + M.WD_CN.map(function (w) { return '<span>' + w + '</span>'; }).join('') + '</div>';
+    return head + '<div class="metrics"><div class="metric"><span>本周</span><b>' + weekN + ' 次</b></div><div class="metric"><span>本月</span><b>' + monthN + ' 次</b></div></div><div class="detail-card">' + chart2 + '<p class="muted small center">累计 ' + lifeN + ' 次 🚀</p></div>';
+  }
   function taskDetailHTML(task) {
+    if (task.isLog) return logDetailHTML(task);
     var today = M.todayStr();
     var wk = M.weekDates(today);
     var p = M.periodProgress(state, task, today);
@@ -731,9 +857,17 @@
     wrap.querySelectorAll('.tpl').forEach(function (b) {
       b.addEventListener('click', function () {
         var tpl = TEMPLATES.filter(function (x) { return x.key === b.dataset.tpl; })[0];
+        if (tpl.isLog) { // 记录型直接添加，不走习惯编辑器
+          var lt = Object.assign({ kind: 'qualitative', unit: null, target: null, direction: 'atLeast', multiAdd: false, quickAdds: null, blackouts: [], isLog: false, logKind: null, recurrence: { type: 'daily' }, archived: false }, tpl);
+          delete lt.key; delete lt.desc; delete lt.personalize;
+          if (tpl.personalize === 'sleep') lt.target = recommendSleep(state.profile).target;
+          S.upsertTask(state, lt); closeModal(); render(); toast('已添加：' + tpl.title);
+          return;
+        }
         var prefill = JSON.parse(JSON.stringify(tpl));
         delete prefill.key; delete prefill.desc;
-        if (tpl.personalize === 'water') { var r = recommendWater(state.profile); prefill.target = r.target; prefill._note = r.note; }
+        var rec = tpl.personalize === 'water' ? recommendWater(state.profile) : null;
+        if (rec) { prefill.target = rec.target; prefill._note = rec.note; }
         delete prefill.personalize;
         closeModal(); openEditor(prefill);
       });

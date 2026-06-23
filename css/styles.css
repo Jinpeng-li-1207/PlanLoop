@@ -108,6 +108,8 @@ h2.sec { font-size: 14px; font-weight: 600; color: var(--text-2); margin: 22px 2
 .addbtn:active { transform: scale(.95); }
 .quickadds-panel { display: none; flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 0.5px solid var(--line); }
 .quickadds-panel.open { display: flex; }
+.logicon { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%; background: var(--surface-2); display: inline-flex; align-items: center; justify-content: center; color: var(--accent); }
+.logicon.big { background: transparent; font-size: 18px; }
 
 .empty { color: var(--text-3); font-size: 14px; text-align: center; padding: 28px 10px; }
 
@@ -127,6 +129,9 @@ h2.sec { font-size: 14px; font-weight: 600; color: var(--text-2); margin: 22px 2
 .plan-row .prog span { display: block; font-size: 11px; color: var(--text-3); }
 
 /* 我的页 */
+.recap { background: var(--accent-soft); color: var(--accent-ink); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; }
+.recap-t { margin: 0 0 4px; font-size: 13px; opacity: .85; }
+.recap-l { margin: 0; font-size: 15px; line-height: 1.6; }
 .lifecard { background: var(--surface-2); border-radius: var(--radius); padding: 16px; }
 .lifecard span { font-size: 12px; color: var(--text-2); }
 .lifecard b { display: block; font-size: 30px; font-weight: 600; margin-top: 4px; }
